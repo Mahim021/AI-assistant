@@ -7,7 +7,7 @@ import '../models/message.dart';
 class OpenAIService {
   static const String _baseUrl = 'https://api.openai.com/v1/chat/completions';
   static const String _model = 'gpt-4o-mini';
-  static const String _apiKey = ''; // Replace with your key
+  static const String _apiKey = ''; // Set your OpenAI API key here
   static const String _systemPrompt =
       'You are a helpful, concise, and intelligent AI assistant. '
       'Respond clearly and accurately to user queries. '

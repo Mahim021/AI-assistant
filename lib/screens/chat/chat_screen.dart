@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 import '../../models/message.dart';
+import '../../services/alarm_service.dart';
 import '../../services/openai_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/feature_card.dart';
@@ -87,11 +88,44 @@ class _ChatScreenState extends State<ChatScreen> {
     setState(() {
       _messages.add(userMsg);
       _pendingFiles.clear();
-      _isStreaming = true;
-      _streamingContent = '';
     });
     _inputController.clear();
     _scrollToBottom();
+
+    // Handle alarm requests without going to OpenAI
+    final alarmTime = AlarmService.parseAlarmRequest(trimmed);
+    if (alarmTime != null) {
+      try {
+        await AlarmService.setAlarm(alarmTime, label: trimmed);
+        if (!mounted) return;
+        setState(() {
+          _messages.add(ChatMessage(
+            id: _id(),
+            content: 'Alarm set for ${alarmTime.formatted}.',
+            sender: MessageSender.assistant,
+            timestamp: DateTime.now(),
+          ));
+        });
+      } catch (_) {
+        if (!mounted) return;
+        setState(() {
+          _messages.add(ChatMessage(
+            id: _id(),
+            content: 'Sorry, I couldn\'t set the alarm on this device.',
+            sender: MessageSender.assistant,
+            timestamp: DateTime.now(),
+            isError: true,
+          ));
+        });
+      }
+      _scrollToBottom();
+      return;
+    }
+
+    setState(() {
+      _isStreaming = true;
+      _streamingContent = '';
+    });
 
     try {
       await for (final chunk in _openAI.streamResponse(messages: _messages)) {

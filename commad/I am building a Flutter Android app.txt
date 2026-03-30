@@ -1,0 +1,83 @@
+I am building a Flutter Android app — a personal AI assistant chatbot that can set alarms and calendar reminders on the user's device by understanding natural language messages.
+
+Build the complete AlarmManager alarm system for this app. Here is everything you need to know:
+
+---
+
+PROJECT CONTEXT:
+- Flutter app targeting Android only
+- The backend server returns a JSON response after every message like this:
+  { "reply": "Sure! Alarm set for 6:30 AM.", "intent": { "type": "alarm", "hour": 6, "minute": 30, "label": "Wake up", "datetime_ms": 1735452600000 } }
+  or { "reply": "...", "intent": null } for normal chat
+- Local SQLite database already exists using sqflite. The intents table schema is:
+  CREATE TABLE intents (id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT NOT NULL, label TEXT, scheduled_at INTEGER NOT NULL, created_at INTEGER NOT NULL, status TEXT DEFAULT 'active', message_id INTEGER, alarm_id INTEGER)
+- The app has 4 screens: ChatScreen, ScheduleScreen, MemoryScreen, SettingsScreen
+
+---
+
+WHAT TO BUILD — implement all of the following completely:
+
+1. pubspec.yaml additions
+   Add these packages: android_alarm_manager_plus, flutter_local_notifications, wakelock_plus, permission_handler
+
+2. AndroidManifest.xml
+   Add all required permissions: SCHEDULE_EXACT_ALARM, RECEIVE_BOOT_COMPLETED, USE_FULL_SCREEN_INTENT, WAKE_LOCK, POST_NOTIFICATIONS, REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, VIBRATE, TURN_SCREEN_ON
+   Register the AlarmBroadcastReceiver, a BootReceiver, the AlarmService background service, and an AlarmActivity with showOnLockScreen=true and turnScreenOn=true
+
+3. lib/services/alarm_service.dart
+   A class AlarmService with these methods:
+   - static Future<void> initialize() — call AndroidAlarmManager.initialize()
+   - Future<int> scheduleAlarm(int hour, int minute, String label, int datetimeMs) — generates a unique int alarm ID, calls AndroidAlarmManager.oneShotAt() with the datetime, saves to SQLite intents table with status 'active', returns the alarm ID
+   - Future<void> cancelAlarm(int alarmId) — calls AndroidAlarmManager.cancel(alarmId), updates SQLite status to 'cancelled'
+   - Future<void> rescheduleAllOnBoot() — queries SQLite for all intents where status='active' and scheduled_at > DateTime.now().millisecondsSinceEpoch, re-registers each one with AndroidAlarmManager
+   - static Future<void> onAlarmFired(int id) — the top-level callback function required by android_alarm_manager_plus, must be a top-level function not a class method. It should look up the alarm in SQLite by alarm_id, then launch the AlarmScreen activity via a local notification using flutter_local_notifications with fullScreenIntent: true
+
+4. lib/services/intent_parser.dart
+   A class IntentParser with:
+   - static IntentModel? parse(Map<String, dynamic> serverResponse) — checks if serverResponse['intent'] is not null, parses the type, hour, minute, label, datetime_ms fields, returns an IntentModel or null
+
+5. lib/models/intent_model.dart
+   A simple data class IntentModel with fields: String type, String label, int hour, int minute, int datetimeMs
+
+6. lib/screens/alarm_screen.dart
+   A full-screen Flutter widget AlarmScreen that:
+   - Accepts label and alarmId as constructor parameters
+   - On initState: enables WakelockPlus, plays a looping alarm sound using flutter_local_notifications or AudioPlayer, starts vibration loop
+   - Shows the current time in large text (use a Timer that updates every second)
+   - Shows the alarm label below the time
+   - Has a DISMISS button — stops sound, disables wakelock, stops vibration, calls AlarmService to update SQLite status to 'fired', pops the screen
+   - Has a SNOOZE button — stops sound, schedules a new alarm for DateTime.now() + 10 minutes using AlarmService.scheduleAlarm(), pops the screen
+   - Sets window flags to show over lock screen using SystemChrome or platform channel
+
+7. android/app/src/main/kotlin/.../BootReceiver.kt
+   A BroadcastReceiver in Kotlin that listens for BOOT_COMPLETED, launches the Flutter engine headlessly if needed, and calls AlarmService.rescheduleAllOnBoot()
+
+8. lib/services/database_service.dart additions
+   Add these methods to the existing DatabaseService (create it fresh if it doesn't exist):
+   - Future<int> insertIntent(IntentModel intent, int alarmId) — inserts into intents table
+   - Future<void> updateIntentStatus(int id, String status) — updates status field
+   - Future<List<Map<String, dynamic>>> getActiveIntents() — SELECT * FROM intents WHERE status='active' AND scheduled_at > [now in ms]
+   - Future<void> clearAllIntents() — DELETE FROM intents (used by delete all data button)
+
+9. lib/widgets/alarm_confirmation_chip.dart
+   A small green confirmation widget to display in the chat after an alarm is set. Shows a checkmark icon and text like "Alarm set for 6:30 AM tomorrow". Accepts a label string and datetime. Has a subtle fade-in animation on appear.
+
+10. Permission onboarding — lib/services/permission_service.dart
+    A class PermissionService with:
+    - Future<bool> hasExactAlarmPermission() — checks if SCHEDULE_EXACT_ALARM is granted
+    - Future<void> requestExactAlarmPermission() — opens the exact alarm settings page using openAppSettings() from permission_handler since Android does not show a standard dialog for this permission
+    - Future<bool> hasNotificationPermission() — checks POST_NOTIFICATIONS
+    - Future<void> requestNotificationPermission() — standard permission request
+
+---
+
+IMPORTANT IMPLEMENTATION NOTES:
+- The onAlarmFired callback passed to AndroidAlarmManager.oneShotAt() MUST be a top-level Dart function, not a class method or lambda. This is a hard requirement of android_alarm_manager_plus.
+- On Android 12+ SCHEDULE_EXACT_ALARM requires sending the user to Settings. Do not use Permission.scheduleExactAlarm.request() — use openAppSettings() instead and let the user toggle it manually.
+- The AlarmScreen must be able to display over the lock screen. Set the window flags FLAG_KEEP_SCREEN_ON, FLAG_SHOW_WHEN_LOCKED, FLAG_TURN_SCREEN_ON in the Activity onCreate in MainActivity.kt or via a MethodChannel from Flutter.
+- All database operations must be async and use await. Never call sqflite synchronously.
+- Generate unique alarm IDs using DateTime.now().millisecondsSinceEpoch % 100000 as an int — AlarmManager requires int IDs not UUIDs.
+
+---
+
+Generate all files completely with full working code. No placeholders, no TODO comments, no partial implementations. Every file should be production-ready and immediately runnable.
